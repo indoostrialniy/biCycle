@@ -2,24 +2,41 @@
 #ifndef BI_CYCLE_H
 #define BI_CYCLE_H
 
+
+#include <iostream>
+#include <vector>
+#include <functional>
+//#include "nameof.hpp" // подключить при необходимости ( https://github.com/Neargye/nameof )
+
+#define BICYCLE_LIBRARY
+
+
 /*
-	2024-10-15  indoostrialniy  <pawel.iv.2016@yandex.ru>
+	2025-01-17  indoostrialniy  <pawel.iv.2016@yandex.ru>
 	
-	Описание библиотеки biCycle v1.2
+	Описание библиотеки biCycle v1.3
 	Называется велосипедом не просто так ¯\_(ツ)_/¯
 	
-	Назначение:
+		Назначение:
+	
 	Заголовочный файл "biCycle.h" описывает класс biCycleSequencer, который позволяет "запоминать" функции, отвечающие некоторым требованиям и
-	описывающие пользовательские скриптовки, и исполнять их в каждом цикле пользовательской программы 
-	до тех пор, пока они не вернут true. По желанию можно дополнительно указывать булев флаг о завершении и вспомогательную int-переменную (см. Способ применения п.4).
+	описывающие пользовательские скриптовки, и обращаться к ним в каждом цикле пользовательской программы до тех пор, пока они не вернут true.
+	В качестве аргумента в функцию-метод передается некий пользовательский объект.
+	Имеет смысл в качестве типа описывать структуру даннных, в которую, например, по желанию можно добавлять булев флаг о завершении или вспомогательную int-переменную (см. Способ применения п.4).
+	Кастомная структура данных позволит при дальнейшем масштабировании программы не перелопачивать весь код, добавляя аргументы. Своего рода - задел на будущее.
 	 
 	Ко всем обозначениям добавлена приставка biCycle для минимизации вероятности конфликта имен в проекте, использующем множество библиотек.
 	 
 	Способ применения:
 	1)	Подключить данный заголовочный файл:
 		#include "biCycle.h"
-	2)	После подключения создать экземпляр класса biCycleSequencer с удобным именем, в данном примере - "Flow":
-		biCycleSequencer Flow;
+	
+	2)	В начале программы описать тип кастомного аргумента (yourType) и ОБЯЗАТЕЛЬНО объявить #define BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE на ваш тип:
+		#define BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE yourType
+	
+	2)	После подключения создать экземпляр класса biCycleSequencer с удобным именем, в данном примере - "Flow", с инициализацией шаблона пользовательским типом передаваемого в хранимую функцию аргумента:
+		biCycleSequencer<BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE> Flow;
+	
 	3)	В нужном пользователю месте, вероятнее всего - в главной петле, прописать вызов метода Execute():
 		
 		void mainLoop()
@@ -38,21 +55,24 @@
 			в аргумент которого передается структура biCycleSequenceWrapper обертки подмешиваемой функции либо
 			в аргумент записываются сразу компоненты обертки через фигурные скобки. (См.описание обертки). Возможные варианты:
 			
-			а - biCycleSequenceWrapper newSequence("string_function_name_id", functionNameWithoutBrackets, ownerClassPointer);
-				Flow.CallSequence( newSequence );	
+			// способ 1
+			std::function<bool(BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE)> startFunction = std::bind( &Body::testFunc, body);
+			biCycleSequenceData datas(&completeFlag, auxVar);
+			Flow.CallSequence( { std::move(startFunction), std::move(datas) } );								
 			
-			б - biCycleSequenceWrapper newSequence("string_function_name_id", functionNameWithoutBrackets, ownerClassPointer, &boolReportFlag, customInteger);
-				Flow.CallSequence( newSequence );	
+			// способ 2
+			Flow.CallSequence( { std::bind( &Body::testFunc, body), biCycleSequenceData(&completeFlag, auxVar) } );	
 			
-			в - Flow.CallSequence( {"string_function_name_id", functionNameWithoutBrackets, ownerClassPointer} );	
+			// способ 3
+			Flow.CallSequence( { std::bind( &Body::testFunc, body), biCycleSequenceData() } );	
 			
-			г - Flow.CallSequence( {"string_function_name_id", functionNameWithoutBrackets, ownerClassPointer, &boolReportFlag, customInteger} );		
+			// способ 4
+			Flow.CallSequence( { std::bind( &Body::testFunc, body) } );
 	
 	
 	Описание работы:
 	Для реализации своего назначения библиотека содержит:
 	1) необходимую для правильной работы обертку biCycleSequenceWrapper функции, чье выполнение мы хотим подмешать в основной цикл программы
-	2) типоопределение biCycleMixedSequenceFunc для возможности внесения функций в обертку
 	
 	3) класс biCycleSequencer, содержащий:	
 		3.1) вектор sequences, хранящий все приписанные обертки
@@ -67,152 +87,100 @@
 	Терминология: 
 	последовательность 	- это функция, описывающая набор каких-либо временнО- или цикло-ориентированных событий 
 	Секвенсор 			- класс, содержащий всё необходимое для работы механизма подмешивания последовательности в основной цикл программы
-*/
 
 
+	Функция, которую собираемся подмешать в поток команд цикла, имеет 4 аргумента - структуру со вспомогательными параметрами,  также "коллбек"-функции начала и конца,
+	и должна возвращать булеву переменную. Такова задумка.
 
 
-#include <iostream>
-#include <vector>
-//#include "nameof.hpp" // подключить при необходимости ( https://github.com/Neargye/nameof )
-
-#define BICYCLE_LIBRARY
-
-/*
-	Функция, которую собираемся подмешать в поток команд цикла, имеет 2 аргумента (указатель на объект типа void и еще один int, с помощью которого можно передавать в функцию вспомогательные параметры) 
-	и должна возвращать булеву переменную. Такова задумка. Обозначим указатель:
-*/
-
-typedef bool (*biCycleMixedSequenceFunc)(void*, int); 
-
-
-/*
 	Шаблон, которого должна придерживаться пользовательская последовательность (функция/метод).
 	
 	Основные требования: "шапка"
-			static bool yourOwnSequenceName(void* ptr, int var)
+			bool yourOwnSequenceName(BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE& data)
 	и, соответственно, обязательное возвращение bool в теле функции.
 	
 	Возвращенный true прекращает дальнейшее исполнение последовательности (смотри функцию Execute() )
 	
-	ОСТОРОЖНО, КОСТЫЛЬ !
-	Аргумент ptr функции yourOwnSequenceName(void* ptr) указывается как void* во избежание проблем при компиляции и во имя единообразия.
-	А так как при занесении последовательности в Секвенсор явно указывается и адрес класса-владельца метода этой последовательности, то очевидно, что аргумент void* ptr
-	всегда (ну, почти наверняка) будет являться указателем на объект такого же класса, как и класс-владелец. (Потому, что де-факто это он же и есть!)
-	А значит, можно принудительно заставить функцию-последовательность воспринимать ptr как указатель на класс, которому она принадлежит, введя для удобства новый define:
 
-	#define OWNER ((OwnerClassType*)ptr)
-			
-	static bool sequencerFuncTemplate(void* ptr, int var)
-	{
-		//	OWNER->getOwnerClassData();
-		//	аналогично
-		//	((OwnerClassType*)ptr)>getOwnerClassData();
-			
-		
-		// обязательная часть функции последовательности
-		#define finish_condition_has_come 1
-		if ( finish_condition_has_come )
-		{
-			// some code, if needed
-			return true;	// возвращение true-флага отвяжет последовательность от секвенсора и она больше не будет исполняться
-		}
-		else
-		{
-			// some code, if needed
-			return false;	// возвращение false-флага сигнализирует, что последовательность еще не выполнена до конца
-		}
-	}
-	
-	Но при этом не происходит проверки на nullptr и тип указываемого объекта (подразумевается, что - класса), 
-	поэтому чуть более безопасной альтернативой можно предложить применение макроса проверки на nullptr на основании лямбда-функции:
-	
-	#define CHECK_PTR(pointer) [&]() {	if(pointer != nullptr)	{return true;}	else {	std::cout << "----\nError by access ptr [" << NAMEOF(pointer) << "] by type [" << NAMEOF_TYPE(decltype(pointer)) << "]. It`s nullptr! " << __FILE__<< ", " << __LINE__<< "\n----" << std::endl;	return false;	}	} ()
-
-	или макроса динамического приведения типа:
-	
-	#define IF_DYNAMIC_CAST(castedType, castedPtr, pointer) 	castedType castedPtr = dynamic_cast<castedType>(pointer); if( [&]() { if(castedPtr != nullptr) {return true;} else { std::cout << "\n----\nCannot dynamic cast [" << NAMEOF_TYPE(decltype(pointer)) <<" " <<  (#pointer) << "] to type [" << (#castedType) << "]! Nullptr! " <<  __FILE__ << ", " << __LINE__<< "!\n----\n" << std::endl; return false; } } () )
-	
-	
-	Такие макросы следует применять совместно с библиотекой NAMEOF ( https://github.com/Neargye/nameof ) либо урезать/модифицировать под собственные нужды.
-	
-	Макрос CHECK_VALUE просто возвращает true, если указатель не nullptr, либо возвращает false с выведением в консоль комментария о произошедшей ошибке.
-	Соответственно, имеет смысл помещать его в if-оператор и тогда следующее за ним тело в скобках будет выполнено лишь если указатель не nullptr:
-	
-	if( CHECK_PTR(yourPointer) )		{	здесь можно безопасно использовать указатель yourPointer 	}
-	
-	
-	Макрос IF_DYNAMIC_CAST в своем собственном теле объявляет и инициализирует переменную castedPtr с указанным типом castedType, производит динамический каст конкретного указателя pointer и если приведение
-	произведено успешно, то позволяет выполнение ОБЯЗАТЕЛЬНО СЛЕДУЮЩЕГО за макросом тела в скобках {}:
-	
-	static bool sequencerFuncTemplate(void* ptr, int var)
-	{
-		IF_DYNAMIC_CAST(OwnerClassType*, newAuxPtrForCasting, ((OwnerClassType*)ptr))
-		{
-			newAuxPtrForCasting->getOwnerClassData();
-			
-			#define finish_condition_has_come 1
-			if( finish_condition_has_come )
-			{
-				// some code, if needed
-				return true;	// возвращение true-флага отвяжет последовательность от секвенсора и она больше не будет исполняться
-			}
-			else
-			{
-				// some code, if needed
-				return false;	// возвращение false-флага сигнализирует, что последовательность еще не выполнена до конца
-			}
-				
-		}
-		else
-		{
-			return true; // в случае неудачи приведения типов возвращение true позволит сразу отвязать последовательность от Секвенсора
-		}
-	}
-	
-*/
-
-/*
 	Обертка:
 	
 	Структура SequenceWrapper - это "обертка" для подмешиваемой последовательности, она хранит: 
-	строковое имя функции; 
 	адрес функции; 
-	адрес класса, чьим методом является эта функция; 
-	указатель на флаг завершенности функции (использующийся для сигнализации о выполнении последовательности). Данный буль-флаг инвертируется по завершении последовательности;
-	вспомогательная целочисленная переменная-аргумент, передаваемый в последовательность.
-	
-	Адрес класса-владельца нужно передавать в последовательность при вызове для того, чтобы она могла иметь доступ к членам этого класса, поскольку сама по себе является статической
+	структуру с данными аргументов ( указатель на флаг завершенности функции (использующийся для сигнализации о выполнении последовательности), вспомогательная целочисленная переменная-аргумент и т.д.
 */
 
+
+
+
+
+
+template <typename S>		// S - это шаблон структуры, хранящей необходимые данные для взаимодействия со последовательностью
 struct biCycleSequenceWrapper
 {
-	biCycleSequenceWrapper(std::string funcName, biCycleMixedSequenceFunc funcItself, void* funcOwnerClass, bool* bReportPtr = nullptr, int auxVar = 0) 
+	biCycleSequenceWrapper() {}
+	
+	//колбеки с аргументами
+	biCycleSequenceWrapper( const std::function<bool(S&)>& funcItself, 
+							const std::function<bool(S&)>& start = [](S&){ std::cout<< "DEFAULT BEGIN" << std::endl; return true;} , 
+							const std::function<bool(S&)>& end = [](S&){ std::cout<< "DEFAULT READY" << std::endl; return true;} , 
+							S args = S() ) 	// явно указываем последовательность, аргумент и коллбеки
 	{
-		eventName 	= funcName;
-		bindedEvent = funcItself;
-		bindedClass = funcOwnerClass;
-		iArgument 		= auxVar;
-		if (bReportPtr != nullptr) { report = bReportPtr; } //bReportPtr по умолчанию может быть nullptr (для необязательности его упоминания в аргументах), потому добавляем проверку
+		function = funcItself;
+		startFunc = start;
+		endFunc = end;
+		data = args;
 	}
+	
+	//колбеки без аргументов
+	biCycleSequenceWrapper( const std::function<bool(S&)>& funcItself, 
+							const std::function<void()>& start = [](){ std::cout<< "Default non-argument callback: start" << std::endl;  } , 
+							const std::function<void()>& end = [](){ std::cout<< "Default non-argument callback: start" << std::endl;  } , 
+							S args = S() ) 	// явно указываем последовательность, аргумент и коллбеки
+	{
+		function = funcItself;
+		start_callback = start;
+		end_callback = end;
+		data = args;
+	}
+	
+	biCycleSequenceWrapper( const std::function<bool(S&)>& funcItself, 	S args = S() ) 	// явно указываем последовательность и, возможно, аргумент
+	{
+		function = funcItself;
+		data = args;
+	}	
+	
+	
+	std::function<bool(S&)> 	function;
+	S							data ;
+	
+	std::function<bool(S&)>		startFunc;								// с аргументами 	= [](S&){ std::cout<< "DEFAULT BEGIN" << std::endl; return true;};
+	std::function<bool(S&)>		endFunc;								// 	= [](S&){ std::cout<< "DEFAULT READY" << std::endl; return true;};
+	
+	std::function<void()>		start_callback;							// без аргументов
+	std::function<void()>		end_callback;
 
-	std::string eventName 	= "func_name";
-	biCycleMixedSequenceFunc 	bindedEvent;
-	void* 		bindedClass = nullptr;
-	int			iArgument	= 0;
-	bool* 		report 		= nullptr; //указатель на булев флаг завершенности действия (для отчета, не обязателен)
 };
 
 
+
+
+template <typename S>
 class biCycleSequencer
 {
-	std::vector <biCycleSequenceWrapper> sequences;	//вектор с оболочками функций
+	std::vector <biCycleSequenceWrapper<S> > sequences;					//вектор с обертками функций
 
 public:
-	// эта функция лишь принимает оберточную структуру функции и сохраняет ее в приватном векторе
-	void CallSequence(biCycleSequenceWrapper newSequence)
+	// функция CallSequence() лишь принимает ссылочную оберточную структуру biCycleSequenceWrapper функции и сохраняет ее в приватном векторе sequences
+	void CallSequence( const biCycleSequenceWrapper<S>& newSequence)
 	{
-		sequences.push_back(newSequence);	}
+		sequences.push_back(newSequence);	
+		
+		if(sequences.back().startFunc)
+		{	sequences.back().startFunc(sequences.back().data);	}		/// вызов стартовой функции!!!
+		
+		if(sequences.back().start_callback)
+		{ sequences.back().start_callback();	}
+	}
 
 	// функция Execute() должна вызываться из основной части программы. Например, можно вызывать ее в каждом цикле главной петли
 	void Execute()
@@ -220,13 +188,25 @@ public:
 		int i = 0;
 		for (auto sequence : sequences)
 		{
-			bool result = sequences[i].bindedEvent(sequences[i].bindedClass, sequences[i].iArgument); //для выбранной обертки последовательности sequences[i] вызываем исполнение хранимой в ней функции bindedEvent и передаем ей в качестве аргумента указатель sequences[i].bindedClass на класс-владелец метода последовательности 
-
+			bool result = false;
+			
+			if(sequences[i].function)
+			{
+				result = sequences[i].function( sequences[i].data );	//для выбранной обертки последовательности sequences[i] вызываем исполнение хранимой в ней функции function
+			}
+			
 			if (result) //если конкретная последовательность выполнена успешно, то отвязываем ее из потока
 			{
-				if (sequences[i].report != nullptr) { *sequences[i].report = !(*sequences[i].report); } //report из обертки функции иногда может быть nullptr, потому добавляем проверку и инвертируем присланный "извне" булев флаг.
+				
+				if(sequences[i].endFunc)
+				{	sequences[i].endFunc(sequences[i].data);	}		// вызов конечной функции!!!
+		
+				if(sequences[i].end_callback)
+				{ sequences[i].end_callback(); }
+		
 				sequences.erase(sequences.cbegin() + i);
 			}
+			
 			i++;
 		}
 	}

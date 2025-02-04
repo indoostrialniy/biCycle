@@ -1,17 +1,15 @@
 /*
 	2024-10-15  indoostrialniy  <pawel.iv.2016@yandex.ru>
  
- 	Пример использования библиотеки biCycle v1.2
+ 	Пример использования библиотеки biCycle v1.3
  
 	Функция main() содержит цикл while, имитирующий основной цикл.
 	
 	Сторожевой таймер watchDog прерывает выполнение основного цикла на 100-й итерации.
 	
-	Класс Body содержит метод последовательности static bool testFunc(void* ptr, int var), которую можно подмешать в основной цикл. 
-		Эта последовательность отсчитывает свои собственные 30 раз выполнения с помощью внутреннего таймера timer и 
-		ВОЗВРАЩАЕТ true, позволяя тем самым Секвенсору прекратить её выполнение, А ТАКЖЕ инвертировать разыменованный присланный "извне" указатель bool* bReportPtr для отчета.
-		Явно прописывать bool* bReportPtr при подмешивании не обязательно, по-умолчанию он всегда будет nullptr.
-		Явно прописывать int auxVar при подмешивании не обязательно, по-умолчанию она всегда будет 0.
+	Класс Body содержит метод последовательности bool testFunc(BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE data), которую можно подмешать в основной цикл. 
+		Эта последовательность вызывает однократно колбек начала, отсчитывает свои собственные 30 раз выполнения с помощью внутреннего таймера timer и 
+		ВОЗВРАЩАЕТ true, позволяя тем самым Секвенсору прекратить её выполнение и вызвать колбек конца.
 
 	В теле функции main() по указателю body создается новый экземпляр класса Body, 
 	создается и инициализируется как false булева переменная completeFlag для отслеживания статуса завершенности подмешиваемой последовательности,
@@ -19,11 +17,26 @@
 	когда можно	подмешать последовательность в основной цикл.
 	
 	Программа выводит в консоль соответствующие сообщения для объяснения логики работы.
-	В данном примере подмешивание одной и той же последовательности testFunc(void* ptr, int var) происходит дважды - на 5-м и 50-м цикле.
+	В данном примере подмешивание одной и той же последовательности testFunc(BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE data) происходит дважды - на 5-м и 50-м цикле.
 */
 
 #include "biCycle.h"
-biCycleSequencer Flow;	
+
+struct myData	// собственная структура данных позволит при дальнейшем масштабировании не перелопачивать весь код, добавляя аргументы. Т.о - задел на будущее
+{	
+	myData( bool* bReportPtr = nullptr, int value = 0 ) : report(bReportPtr), var(value) {}
+	
+	bool* 	report 	= nullptr; 	//указатель на булев флаг завершенности действия (для отчета, не обязателен)
+	int 	var 	= 0;		// вспомогательная переменная
+};
+
+
+#define BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE myData
+
+
+
+biCycleSequencer<BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE> Flow;	// создали экземпляр с заданным типом данных
+
 
 
 class Body										// класс-пример
@@ -31,34 +44,70 @@ class Body										// класс-пример
 	int timer = 0;								// приватный член класса - таймер для обеспечения отсчетов
 
 public:
-	static bool testFunc(void* ptr, int var)	// эта функция может вызываться Секвенсором в каждом цикле, будучи однажды подмешанной в него. По-умолчанию var = 0 !
+	bool testFunc(BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE data)	// эта функция может вызываться Секвенсором в каждом цикле, будучи однажды подмешанной в него. По-умолчанию var = 0 !
 	{
 		// для удобочитаемости введем define для принудительного восприятия "пустотного" указателя ptr как указателя на объект класса Body
-		#define BODY ((Body*)ptr)
+		//#define BODY ((Body*)ptr)
 		
 		// о способах более безопасного выполнения кода последовательности см. biCycle.h "Шаблон, которого должна придерживаться пользовательская последовательность (функция/метод)."
 		
 		
-		if(BODY->timer == 30)		// условие завершения последовательности
+		if(timer == 30)		// условие завершения последовательности
 		{
 			std::cout << "\n\t\t\tMixed func has complete IT`S OWN INDEPENDENT(!) 30 cycles and set flag to True\n";
-			BODY->timer = 0; // обнуляем таймер для обеспечения возможности повторного запуска последовательности
-			return true;	}
+			timer = 0; // обнуляем таймер для обеспечения возможности повторного запуска последовательности
+			return true;	
+		}
 		else 						// последовательность еще выполняется
 		{
-			std::cout << "\n\t\t\tMixed stream cycle: " << BODY->timer;
-			if(var != 0) {std::cout << "\tAlso have an aux int variable: " << var;}
-			BODY->timer++;
-			return false;	}
+			std::cout << "\n\t\t\tMixed stream cycle: " << timer;
+			//if(var != 0) {std::cout << "\tAlso have an aux int variable: " << var;}
+			timer++;
+			return false;	
+		}
+		
+	}
+	
+	
+	bool custom_start(BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE data)
+	{
+		std::cout << "\n\t\tCustom start. timer=50\n";
+		timer += 10;
+		return true;
+	}
+	
+	bool custom_end(BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE data)
+	{
+		std::cout << "\n\tYohohohoh, its ready!!\n";
+		*(data.report) = !*(data.report);
+		return true;
+	}
+	
+	
+	void load(bool& completeFlag, int auxVar = 0)
+	{
+		//~ Flow.CallSequence( { std::bind( &Body::testFunc, this), biCycleSequenceData(&completeFlag, auxVar) } );	
+		
+		BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE datas(&completeFlag, auxVar);
+		std::function<bool(BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE)> function = std::bind( &Body::testFunc, this, datas);
+		std::function<bool(BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE)> start = std::bind( &Body::custom_start, this, datas);
+		std::function<bool(BICYCLE_LIBRARY_SEQUENCES_ARGUMENT_TYPE)> end = std::bind( &Body::custom_end, this, datas);
+
+
+		//~ Flow.CallSequence( { std::move(startFunction), std::move(datas) } );	
+		
+		Flow.CallSequence( { std::move(function), std::move(start), std::move(end), std::move(datas) } );	
 	}
 };
 
 
 
 
+
+
 int main()
 {
-	std::cout << "Start of example of using library biCycle v1.2\n";
+	std::cout << "Start of example of using library biCycle v1.3\n\n";
 	
 	Body* body = new Body;		// создаем новый экземпляр класса Body
 	
@@ -78,7 +127,22 @@ int main()
 		if(watchDog == mixStep)	
 		{
 			std::cout << "\nSend sequence testFunc(void* ptr, int var) to execution at cycle: " << mixStep << "\n";
-			Flow.CallSequence( {"testFunc", body->testFunc, body, &completeFlag, auxVar} );								
+			
+			// способ 1
+			//~ std::function<bool(biCycleSequenceData)> startFunction = std::bind( &Body::testFunc, body);
+			//~ biCycleSequenceData datas(&completeFlag, auxVar);
+			//~ Flow.CallSequence( { std::move(startFunction), std::move(datas) } );								
+			
+			// способ 2
+			//~ Flow.CallSequence( { std::bind( &Body::testFunc, body), biCycleSequenceData(&completeFlag, auxVar) } );	
+			body->load(completeFlag, 0);
+			// способ 3
+			//~ Flow.CallSequence( { std::bind( &Body::testFunc, body), biCycleSequenceData() } );	
+			
+			// способ 4
+			//~ Flow.CallSequence( { std::bind( &Body::testFunc, body) } );	
+
+			
 			// либо, к примеру, обойтись без явного указания ссылочной переменной и закинуть функцию в Секвенсор через отдельно объявленную структуру-обертку
 			//biCycleSequenceWrapper newSequence("testFunc", body->testFunc, body, &completeFlag);
 			//Flow.CallSequence( newSequence );	
@@ -99,7 +163,7 @@ int main()
 		Flow.Execute();
 		
 		watchDog++;
-		std::cout << std::endl;
+		std::cout << "\n";
 	}
 	
 	std::cout << "End of example\n";
