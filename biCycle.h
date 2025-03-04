@@ -12,9 +12,9 @@
 
 
 /*
-	2025-01-17  indoostrialniy  <pawel.iv.2016@yandex.ru>
+	2025-03-04  indoostrialniy  <pawel.iv.2016@yandex.ru>
 	
-	Описание библиотеки biCycle v1.3
+	Описание библиотеки biCycle v1.4
 	Называется велосипедом не просто так ¯\_(ツ)_/¯
 	
 		Назначение:
@@ -110,57 +110,19 @@
 */
 
 
-
-
-
-
-template <typename S>		// S - это шаблон структуры, хранящей необходимые данные для взаимодействия со последовательностью
+// Структура хранит необходимые данные для корректного занесения последовательности в секвенсор
+template <typename S>		
 struct biCycleSequenceWrapper
-{
-	biCycleSequenceWrapper() {}
-	
-	//колбеки с аргументами
-	biCycleSequenceWrapper( const std::function<bool(S&)>& funcItself, 
-							const std::function<bool(S&)>& start = [](S&){ std::cout<< "DEFAULT BEGIN" << std::endl; return true;} , 
-							const std::function<bool(S&)>& end = [](S&){ std::cout<< "DEFAULT READY" << std::endl; return true;} , 
-							S args = S() ) 	// явно указываем последовательность, аргумент и коллбеки
-	{
-		function = funcItself;
-		startFunc = start;
-		endFunc = end;
-		data = args;
-	}
-	
-	//колбеки без аргументов
-	biCycleSequenceWrapper( const std::function<bool(S&)>& funcItself, 
-							const std::function<void()>& start = [](){ std::cout<< "Default non-argument callback: start" << std::endl;  } , 
-							const std::function<void()>& end = [](){ std::cout<< "Default non-argument callback: start" << std::endl;  } , 
-							S args = S() ) 	// явно указываем последовательность, аргумент и коллбеки
-	{
-		function = funcItself;
-		start_callback = start;
-		end_callback = end;
-		data = args;
-	}
-	
-	biCycleSequenceWrapper( const std::function<bool(S&)>& funcItself, 	S args = S() ) 	// явно указываем последовательность и, возможно, аргумент
-	{
-		function = funcItself;
-		data = args;
-	}	
-	
-	
+{	
 	std::function<bool(S&)> 	function;
 	S							data ;
 	
-	std::function<bool(S&)>		startFunc;								// с аргументами 	= [](S&){ std::cout<< "DEFAULT BEGIN" << std::endl; return true;};
-	std::function<bool(S&)>		endFunc;								// 	= [](S&){ std::cout<< "DEFAULT READY" << std::endl; return true;};
+	std::function<bool(S&)>		startFunc;								// с аргументами
+	std::function<bool(S&)>		endFunc;								
 	
 	std::function<void()>		start_callback;							// без аргументов
 	std::function<void()>		end_callback;
-
 };
-
 
 
 
@@ -173,41 +135,55 @@ public:
 	// функция CallSequence() лишь принимает ссылочную оберточную структуру biCycleSequenceWrapper функции и сохраняет ее в приватном векторе sequences
 	void CallSequence( const biCycleSequenceWrapper<S>& newSequence)
 	{
-		sequences.push_back(newSequence);	
+		sequences.push_back( std::move(newSequence) );	
+		
+		// так как вносим в конец вектора новую последовательность, которую подразумевается сразу же начать исполнять, то для вызова начального колбека
+		// получим последний элемент вектора функцией .back(), которая и будет нашей вносимой
 		
 		if(sequences.back().startFunc)
-		{	sequences.back().startFunc(sequences.back().data);	}		/// вызов стартовой функции!!!
+		{	sequences.back().startFunc(sequences.back().data);	}		// вызов стартовой функции!!!
 		
 		if(sequences.back().start_callback)
 		{ sequences.back().start_callback();	}
+		
 	}
 
 	// функция Execute() должна вызываться из основной части программы. Например, можно вызывать ее в каждом цикле главной петли
 	void Execute()
 	{
-		int i = 0;
-		for (auto sequence : sequences)
+		if( !sequences.empty() )
 		{
-			bool result = false;
+			auto it = sequences.begin();
 			
-			if(sequences[i].function)
+			while (it != sequences.end()) 
 			{
-				result = sequences[i].function( sequences[i].data );	//для выбранной обертки последовательности sequences[i] вызываем исполнение хранимой в ней функции function
-			}
-			
-			if (result) //если конкретная последовательность выполнена успешно, то отвязываем ее из потока
-			{
+				if(it->function)
+				{
+					bool result = it->function(it->data);
 				
-				if(sequences[i].endFunc)
-				{	sequences[i].endFunc(sequences[i].data);	}		// вызов конечной функции!!!
-		
-				if(sequences[i].end_callback)
-				{ sequences[i].end_callback(); }
-		
-				sequences.erase(sequences.cbegin() + i);
+					if (result) 
+					{
+						if (it->endFunc) 		it->endFunc(it->data);		
+						if (it->end_callback) 	it->end_callback();
+						
+						it = sequences.erase(it); // erase возвращает следующий итератор
+					} 
+					else 
+					{
+						++it;
+					}
+				}
+				else // если функция вдруг оказалась пустой
+				{
+					//std::cout << "\t\tEmpty main func!\n";
+					
+					if (it->endFunc) 		it->endFunc(it->data);
+					if (it->end_callback) 	it->end_callback();
+					
+					it = sequences.erase(it); // erase возвращает следующий итератор
+				}
+				
 			}
-			
-			i++;
 		}
 	}
 
@@ -216,5 +192,6 @@ public:
 		sequences.clear(); //очистка вектора последовательностей
 	}
 };
+
 
 #endif
